@@ -137,7 +137,7 @@ const getCharacter = tool(
 		if (data) {
 			return new Command({
 				update: {
-					characterData: data.data,
+					characterData: { [name]: data.data },
 					messages: [
 						new ToolMessage({
 							content: "Successfully retrieved character details",

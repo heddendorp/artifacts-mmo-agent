@@ -13,7 +13,11 @@ import { ChatOllama } from "@langchain/ollama";
 import { tools } from "./tools.ts";
 
 const rules = ` 
-The name of the character the AI plays is \`LukasAI\`.
+You have the following characters you can use:
+ - Lukas
+ - LukasAI
+Characters can work in parallel, make sure to keep both busy, during cooldown you can switch the active character. 
+Levels should be increased across all characters.
 Your job is to use tools to play the character and progress. 
 If you encounter an error, try to find a way to mitigate the error. 
 Try to act without asking for user input. 
@@ -39,7 +43,10 @@ const StateAnnotation = Annotation.Root({
 	mapTiles: Annotation<any[]>,
 	monsters: Annotation<any[]>,
 	items: Annotation<any[]>,
-	characterData: Annotation<any>,
+	characterData: Annotation<any[]>({
+		default: () => [],
+		reducer: (a, b) => a.concat(b),
+	}),
 	task: Annotation<any>,
 });
 
@@ -49,10 +56,10 @@ const stateModifier = (state: typeof StateAnnotation.State) => {
 	const monsters = state.monsters;
 	const items = state.items;
 	const task = state.task;
-	const characterName = state.characterName;
 	const systemMessage = new SystemMessage(`
 	${rules}
 	There is already some information.
+	The current time is: ${new Date().toISOString()}
 
 	These are the loaded map tiles:
 	${JSON.stringify(mapTiles)}
