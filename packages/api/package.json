@@ -1,0 +1,14 @@
+{
+  "name": "artifact-api",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "generate": "openapi-typescript https://api.artifactsmmo.com/openapi.json -o schema.d.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.6.1"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.13.4"
+  }
+}

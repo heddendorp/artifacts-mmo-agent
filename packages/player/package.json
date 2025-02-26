@@ -1,0 +1,11 @@
+{
+  "name": "artifact-player",
+  "module": "index.ts",
+  "type": "module",
+  "dependencies": {
+    "@effect/platform": "^0.77.2",
+    "@effect/platform-bun": "^0.57.2",
+    "artifact-api": "workspace:*",
+    "effect": "^3.13.2"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "agent",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@langchain/core": "^0.3.40",
+    "@langchain/google-vertexai": "^0.2.0",
+    "@langchain/langgraph": "^0.2.49",
+    "@langchain/ollama": "^0.2.0",
+    "zod": "^3.24.2",
+    "zod-to-json-schema": "^3.24.3"
+  }
+}
