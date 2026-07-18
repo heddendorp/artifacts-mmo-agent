@@ -1,415 +1,432 @@
 /**
- * @since 1.0.0
+ * The `AnthropicClient` module defines the low-level Effect service for
+ * Anthropic's Messages API. It builds a generated Anthropic HTTP client with
+ * authentication headers, API version headers, response decoding, and error
+ * mapping, then exposes helpers for regular and streaming message requests.
+ *
+ * @since 4.0.0
  */
-import * as AiError from "@effect/ai/AiError"
-import * as AiResponse from "@effect/ai/AiResponse"
-import * as AiRole from "@effect/ai/AiRole"
-import * as Sse from "@effect/experimental/Sse"
-import * as HttpBody from "@effect/platform/HttpBody"
-import * as HttpClient from "@effect/platform/HttpClient"
-import type * as HttpClientError from "@effect/platform/HttpClientError"
-import * as HttpClientRequest from "@effect/platform/HttpClientRequest"
-import * as Chunk from "effect/Chunk"
-import * as Config from "effect/Config"
-import type { ConfigError } from "effect/ConfigError"
+import * as Array from "effect/Array"
+import type * as Config from "effect/Config"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
 import * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Redacted from "effect/Redacted"
+import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import type { Mutable } from "effect/Types"
-import { AnthropicConfig } from "./AnthropicConfig.js"
-import * as Generated from "./Generated.js"
+import type * as AiError from "effect/unstable/ai/AiError"
+import * as Sse from "effect/unstable/encoding/Sse"
+import * as Headers from "effect/unstable/http/Headers"
+import * as HttpBody from "effect/unstable/http/HttpBody"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import type * as HttpClientError from "effect/unstable/http/HttpClientError"
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import { AnthropicConfig } from "./AnthropicConfig.ts"
+import * as Generated from "./Generated.ts"
+import * as Errors from "./internal/errors.ts"
+
+// =============================================================================
+// Service Interface
+// =============================================================================
 
 /**
- * @since 1.0.0
- * @category tags
- */
-export class AnthropicClient extends Context.Tag(
-  "@effect/ai-openai/AnthropicClient"
-)<AnthropicClient, AnthropicClient.Service>() {}
-
-/**
- * @since 1.0.0
+ * Represents the Anthropic client service with methods for the Messages API, including regular and streaming message
+ * creation.
+ *
  * @category models
+ * @since 4.0.0
  */
-export declare namespace AnthropicClient {
+export interface Service {
   /**
-   * @since 1.0.0
-   * @category models
+   * The underlying generated Anthropic client that exposes all API endpoints.
    */
-  export interface Service {
-    readonly client: Generated.Client
-    readonly streamRequest: <A>(
-      request: HttpClientRequest.HttpClientRequest
-    ) => Stream.Stream<A, HttpClientError.HttpClientError>
-    readonly stream: (
-      request: StreamCompletionRequest
-    ) => Stream.Stream<StreamChunk, HttpClientError.HttpClientError>
-  }
+  readonly client: Generated.AnthropicClient
+
+  /**
+   * Executes a low-level streaming HTTP request and decodes the Server-Sent Events response using the provided schema.
+   */
+  readonly streamRequest: <S extends Sse.EventCodec>(
+    schema: S
+  ) => (request: HttpClientRequest.HttpClientRequest) => Stream.Stream<
+    S["Type"],
+    HttpClientError.HttpClientError | Schema.SchemaError | Sse.Retry,
+    S["DecodingServices"]
+  >
+
+  /**
+   * Creates a message using the Anthropic Messages API and maps all errors to the unified `AiError` type.
+   */
+  readonly createMessage: (options: {
+    readonly payload: typeof Generated.BetaCreateMessageParams.Encoded
+    readonly params?: typeof Generated.BetaMessagesPostParams.Encoded | undefined
+  }) => Effect.Effect<
+    [body: typeof Generated.BetaMessage.Type, response: HttpClientResponse.HttpClientResponse],
+    AiError.AiError
+  >
+
+  /**
+   * Creates a streaming message using the Anthropic Messages API and maps all errors to the unified `AiError` type.
+   *
+   * **Details**
+   *
+   * The returned Effect yields the HTTP response and a stream of events as the model generates its response. The stream
+   * automatically terminates when a `message_stop` event is received.
+   */
+  readonly createMessageStream: (options: {
+    readonly payload: Omit<typeof Generated.BetaCreateMessageParams.Encoded, "stream">
+    readonly params?: typeof Generated.BetaMessagesPostParams.Encoded | undefined
+  }) => Effect.Effect<
+    [response: HttpClientResponse.HttpClientResponse, stream: Stream.Stream<MessageStreamEvent, AiError.AiError>],
+    AiError.AiError
+  >
 }
 
 /**
- * @since 1.0.0
- * @category constructors
+ * Represents an event received from the Anthropic Messages API during a streaming request.
+ *
+ * **Details**
+ *
+ * Events include:
+ * - `message_start`: Initial event containing message metadata
+ * - `message_delta`: Incremental updates to the message (e.g., stop reason)
+ * - `message_stop`: Final event indicating the message is complete
+ * - `content_block_start`: Start of a content block
+ * - `content_block_delta`: Incremental content updates (text, tool use, etc.)
+ * - `content_block_stop`: End of a content block
+ * - `error`: Error events with type and message
+ *
+ * @category models
+ * @since 4.0.0
  */
-export const make = (options: {
-  readonly apiKey?: Redacted.Redacted | undefined
+export type MessageStreamEvent =
+  | typeof Generated.BetaMessageStartEvent.Type
+  | typeof Generated.BetaMessageDeltaEvent.Type
+  | typeof Generated.BetaMessageStopEvent.Type
+  | typeof Generated.BetaContentBlockStartEvent.Type
+  | typeof Generated.BetaContentBlockDeltaEvent.Type
+  | typeof Generated.BetaContentBlockStopEvent.Type
+  | typeof Generated.BetaErrorResponse.Type
+
+// =============================================================================
+// Service Identifier
+// =============================================================================
+
+/**
+ * Service tag for the Anthropic client.
+ *
+ * **When to use**
+ *
+ * Use when accessing or providing the Anthropic client service through Effect's
+ * context.
+ *
+ * @see {@link make} for constructing an Anthropic client effectfully
+ * @see {@link layer} for providing a client from explicit options
+ * @see {@link layerConfig} for providing a client from `Config`
+ *
+ * @category services
+ * @since 4.0.0
+ */
+export class AnthropicClient extends Context.Service<AnthropicClient, Service>()(
+  "@effect/ai-anthropic/AnthropicClient"
+) {}
+
+// =============================================================================
+// Options
+// =============================================================================
+
+/**
+ * Configuration for creating an Anthropic client.
+ *
+ * **When to use**
+ *
+ * Use when the Anthropic client settings are already available as values and
+ * should be passed directly to `make` or `layer`.
+ *
+ * **Details**
+ *
+ * These options configure the base Anthropic URL, the `x-api-key`
+ * authentication header, the `anthropic-version` header, and an optional
+ * transformation of the underlying `HttpClient`.
+ *
+ * @see {@link make} for constructing an Anthropic client from explicit options
+ * @see {@link layer} for providing an Anthropic client from explicit options
+ * @see {@link layerConfig} for loading Anthropic client settings from `Config`
+ *
+ * @category options
+ * @since 4.0.0
+ */
+export type Options = {
+  /**
+   * The Anthropic API key for authentication. Requests are made without authentication when this is omitted, which is
+   * useful for proxied setups or testing.
+   */
+  readonly apiKey?: Redacted.Redacted<string> | undefined
+
+  /**
+   * The base URL for the Anthropic API. Override this to use a proxy or a different API-compatible endpoint.
+   *
+   * @default "https://api.anthropic.com"
+   */
   readonly apiUrl?: string | undefined
-  readonly anthropicVersion?: string
-  readonly organizationId?: Redacted.Redacted | undefined
-  readonly projectId?: Redacted.Redacted | undefined
-  readonly transformClient?: (
-    client: HttpClient.HttpClient
-  ) => HttpClient.HttpClient
-}): Effect.Effect<AnthropicClient.Service, never, HttpClient.HttpClient> =>
-  Effect.gen(function*() {
-    const httpClient = (yield* HttpClient.HttpClient).pipe(
+
+  /**
+   * The Anthropic API version header value. This controls which version of the API to use.
+   *
+   * @default "2023-06-01"
+   */
+  readonly apiVersion?: string | undefined
+
+  /**
+   * Optional transformer for the underlying HTTP client, such as middleware, logging, or custom request/response
+   * handling.
+   */
+  readonly transformClient?: ((client: HttpClient.HttpClient) => HttpClient.HttpClient) | undefined
+}
+
+// =============================================================================
+// Constructor
+// =============================================================================
+
+const RedactedAnthropicHeaders = {
+  AnthropicApiKey: "x-api-key"
+}
+
+/**
+ * Creates an Anthropic client service with the given options.
+ *
+ * **When to use**
+ *
+ * Use when you have explicit configuration values and need an `Effect` that
+ * constructs the Anthropic client service, rather than providing it as a `Layer`.
+ *
+ * **Details**
+ *
+ * The client handles API key authentication via the `x-api-key` header, API versioning via the `anthropic-version`
+ * header, error mapping to the unified `AiError` type, and request/response transformations via `AnthropicConfig`. It
+ * requires an `HttpClient` in the context.
+ *
+ * @see {@link layer} for providing the client as a `Layer` from explicit options
+ * @see {@link layerConfig} for providing the client as a `Layer` with `Config`-based settings
+ *
+ * @category constructors
+ * @since 4.0.0
+ */
+export const make = Effect.fnUntraced(
+  function*(options: Options): Effect.fn.Return<Service, never, HttpClient.HttpClient> {
+    const baseClient = yield* HttpClient.HttpClient
+    const apiVersion = options.apiVersion ?? "2023-06-01"
+
+    const httpClient = baseClient.pipe(
       HttpClient.mapRequest((request) =>
         request.pipe(
           HttpClientRequest.prependUrl(options.apiUrl ?? "https://api.anthropic.com"),
-          options.apiKey ? HttpClientRequest.setHeader("x-api-key", Redacted.value(options.apiKey)) : identity,
-          HttpClientRequest.setHeader("anthropic-version", options.anthropicVersion ?? "2023-06-01"),
+          Predicate.isNotUndefined(options.apiKey)
+            ? HttpClientRequest.setHeader(
+              RedactedAnthropicHeaders.AnthropicApiKey,
+              Redacted.value(options.apiKey)
+            )
+            : identity,
+          HttpClientRequest.setHeader("anthropic-version", apiVersion),
           HttpClientRequest.acceptJson
         )
       ),
-      options.transformClient ? options.transformClient : identity
+      Predicate.isNotUndefined(options.transformClient)
+        ? options.transformClient
+        : identity
     )
-    const httpClientOk = HttpClient.filterStatusOk(httpClient)
+
     const client = Generated.make(httpClient, {
-      transformClient: (client) =>
-        AnthropicConfig.getOrUndefined.pipe(
-          Effect.map((config) => config?.transformClient ? config.transformClient(client) : client)
-        )
+      transformClient: Effect.fnUntraced(function*(client) {
+        const config = yield* AnthropicConfig.getOrUndefined
+        if (Predicate.isNotUndefined(config?.transformClient)) {
+          return config.transformClient(client)
+        }
+        return client
+      })
     })
-    const streamRequest = <A = unknown>(
-      request: HttpClientRequest.HttpClientRequest
-    ) =>
-      httpClientOk.execute(request).pipe(
-        Effect.map((r) => r.stream),
-        Stream.unwrapScoped,
-        Stream.decodeText(),
-        Stream.pipeThroughChannel(Sse.makeChannel()),
-        Stream.takeWhile((event) => event.event !== "message_stop"),
-        Stream.map((event) => JSON.parse(event.data) as A)
-      )
-    const stream = (request: StreamCompletionRequest) =>
-      Stream.suspend(() => {
-        const usage: Mutable<Partial<UsagePart>> = { _tag: "Usage" }
-        return streamRequest<MessageStreamEvent>(
-          HttpClientRequest.post("/v1/messages", {
-            body: HttpBody.unsafeJson({ ...request, stream: true })
-          })
-        ).pipe(
-          Stream.mapAccumEffect(new Map<number, ContentPart | ToolCallPart>(), (acc, chunk) => {
-            const parts: Array<StreamChunkPart> = []
-            switch (chunk.type) {
-              case "message_start": {
-                usage.id = chunk.message.id
-                usage.model = chunk.message.model
-                usage.inputTokens = chunk.message.usage.input_tokens
-                break
-              }
-              case "message_delta": {
-                usage.finishReasons = [chunk.delta.stop_reason]
-                usage.outputTokens = chunk.usage.output_tokens
-                parts.push(usage as UsagePart)
-                break
-              }
-              case "message_stop": {
-                break
-              }
-              case "content_block_start": {
-                const content = chunk.content_block
-                if (content.type === "tool_use") {
-                  acc.set(chunk.index, {
-                    _tag: "ToolCall",
-                    id: content.id,
-                    name: content.name,
-                    arguments: ""
-                  })
-                }
-                break
-              }
-              case "content_block_delta": {
-                switch (chunk.delta.type) {
-                  // TODO: add support for citations (?)
-                  case "citations_delta": {
-                    break
-                  }
-                  case "input_json_delta": {
-                    const toolCall = acc.get(chunk.index) as ToolCallPart
-                    acc.set(chunk.index, {
-                      ...toolCall,
-                      arguments: toolCall.arguments + chunk.delta.partial_json
-                    })
-                    break
-                  }
-                  case "text_delta": {
-                    parts.push({
-                      _tag: "Content",
-                      content: chunk.delta.text
-                    })
-                    break
-                  }
-                }
-                break
-              }
-              case "content_block_stop": {
-                if (acc.has(chunk.index)) {
-                  const toolCall = acc.get(chunk.index) as ToolCallPart
-                  try {
-                    const args = JSON.parse(toolCall.arguments as string)
-                    parts.push({
-                      _tag: "ToolCall",
-                      id: toolCall.id,
-                      name: toolCall.name,
-                      arguments: args
-                    })
-                    // eslint-disable-next-line no-empty
-                  } catch {}
-                }
-                break
-              }
-              case "error": {
-                return Effect.die(
-                  new AiError.AiError({
-                    module: "AnthropicClient",
-                    method: "stream",
-                    description: `${chunk.error.type}: ${chunk.error.message}`
-                  })
-                )
-              }
-            }
-            return Effect.succeed([
-              acc,
-              parts.length === 0
-                ? Option.none()
-                : Option.some(new StreamChunk({ parts }))
-            ])
-          }),
-          Stream.filterMap(identity)
+
+    const httpClientOk = HttpClient.filterStatusOk(httpClient)
+
+    const streamRequest =
+      <S extends Sse.EventCodec>(schema: S) =>
+      (request: HttpClientRequest.HttpClientRequest): Stream.Stream<
+        S["Type"],
+        HttpClientError.HttpClientError | Schema.SchemaError | Sse.Retry,
+        S["DecodingServices"]
+      > =>
+        httpClientOk.execute(request).pipe(
+          Effect.map((response) => response.stream),
+          Stream.unwrap,
+          Stream.decodeText,
+          Stream.pipeThroughChannel(Sse.decodeSchema(schema))
         )
+
+    const createMessage = (options: {
+      readonly payload: typeof Generated.BetaCreateMessageParams.Encoded
+      readonly params?: typeof Generated.BetaMessagesPostParams.Encoded | undefined
+    }): Effect.Effect<
+      [body: typeof Generated.BetaMessage.Type, response: HttpClientResponse.HttpClientResponse],
+      AiError.AiError
+    > =>
+      client.betaMessagesPost({ ...options, config: { includeResponse: true } }).pipe(
+        Effect.catchTags({
+          BetaMessagesPost4XX: (error) => Effect.fail(Errors.mapClientError(error, "createMessage")),
+          HttpClientError: (error) => Errors.mapHttpClientError(error, "createMessage"),
+          SchemaError: (error) => Effect.fail(Errors.mapSchemaError(error, "createMessage"))
+        })
+      )
+
+    const PingEvent = Schema.Struct({
+      type: Schema.Literal("ping")
+    })
+
+    const MessageEvent = Schema.Union([
+      PingEvent,
+      Generated.BetaMessageStartEvent,
+      Generated.BetaMessageDeltaEvent,
+      Generated.BetaMessageStopEvent,
+      Generated.BetaContentBlockStartEvent,
+      Generated.BetaContentBlockDeltaEvent,
+      Generated.BetaContentBlockStopEvent,
+      Generated.BetaErrorResponse
+    ])
+
+    const buildMessageStream = (
+      response: HttpClientResponse.HttpClientResponse
+    ): [HttpClientResponse.HttpClientResponse, Stream.Stream<MessageStreamEvent, AiError.AiError>] => {
+      const stream = response.stream.pipe(
+        Stream.decodeText,
+        Stream.pipeThroughChannel(Sse.decodeDataSchema(MessageEvent)),
+        Stream.takeUntil((event) => event.data.type === "message_stop"),
+        Stream.map((event) => event.data),
+        Stream.filter((event): event is MessageStreamEvent => event.type !== "ping"),
+        Stream.catchTags({
+          // TODO: handle SSE retries
+          Retry: (error) => Stream.die(error),
+          HttpClientError: (error) => Stream.fromEffect(Errors.mapHttpClientError(error, "createMessageStream")),
+          SchemaError: (error) => Stream.fail(Errors.mapSchemaError(error, "createMessageStream"))
+        })
+      ) as any
+      return [response, stream]
+    }
+
+    const createMessageStream: Service["createMessageStream"] = (options) => {
+      const request = HttpClientRequest.post("/v1/messages", {
+        headers: Headers.fromInput({
+          "anthropic-beta": options.params?.["anthropic-beta"] ?? undefined,
+          "anthropic-version": options.params?.["anthropic-version"] ?? apiVersion
+        }),
+        body: HttpBody.jsonUnsafe({
+          ...options.payload,
+          stream: true
+        })
       })
-    return AnthropicClient.of({ client, streamRequest, stream })
-  })
+      return httpClientOk.execute(request).pipe(
+        Effect.map(buildMessageStream),
+        Effect.catchTag(
+          "HttpClientError",
+          (error) => Errors.mapHttpClientError(error, "createMessageStream")
+        )
+      )
+    }
 
-/**
- * @since 1.0.0
- * @category layers
- */
-export const layer = (options: {
-  readonly apiKey?: Redacted.Redacted | undefined
-  readonly apiUrl?: string | undefined
-  readonly anthropicVersion?: string
-  readonly transformClient?: (
-    client: HttpClient.HttpClient
-  ) => HttpClient.HttpClient
-}): Layer.Layer<AnthropicClient, never, HttpClient.HttpClient> => Layer.effect(AnthropicClient, make(options))
-
-/**
- * @since 1.0.0
- * @category layers
- */
-export const layerConfig = (
-  options: Config.Config.Wrap<{
-    readonly apiKey?: Redacted.Redacted | undefined
-    readonly apiUrl?: string | undefined
-    readonly anthropicVersion?: string
-    readonly transformClient?: (
-      client: HttpClient.HttpClient
-    ) => HttpClient.HttpClient
-  }>
-): Layer.Layer<AnthropicClient, ConfigError, HttpClient.HttpClient> =>
-  Config.unwrap(options).pipe(
-    Effect.flatMap(make),
-    Layer.effect(AnthropicClient)
+    return AnthropicClient.of({
+      client,
+      streamRequest,
+      createMessage,
+      createMessageStream
+    })
+  },
+  Effect.updateService(
+    Headers.CurrentRedactedNames,
+    Array.appendAll(Object.values(RedactedAnthropicHeaders))
   )
+)
+
+// =============================================================================
+// Layers
+// =============================================================================
 
 /**
- * @since 1.0.0
- * @category models
+ * Creates a layer for the Anthropic client with the given options.
+ *
+ * **When to use**
+ *
+ * Use when you already have explicit `Options` values, such as an API key or
+ * custom API URL, and want to provide `AnthropicClient` as a `Layer`.
+ *
+ * @see {@link make} for constructing the client service effectfully
+ * @see {@link layerConfig} for loading client settings from `Config`
+ *
+ * @category layers
+ * @since 4.0.0
  */
-export type StreamCompletionRequest = Omit<
-  typeof Generated.CreateMessageParams.Encoded,
-  "stream"
->
-
-type MessageStreamEvent =
-  | ErrorEvent
-  | MessageStartEvent
-  | MessageDeltaEvent
-  | MessageStopEvent
-  | ContentBlockStartEvent
-  | ContentBlockDeltaEvent
-  | ContentBlockStopEvent
-
-interface MessageStartEvent {
-  readonly type: "message_start"
-  readonly message: typeof Generated.Message.Encoded
-}
-
-interface MessageDeltaEvent {
-  readonly type: "message_delta"
-  readonly delta: {
-    readonly stop_reason:
-      | "end_turn"
-      | "max_tokens"
-      | "stop_sequence"
-      | "tool_use"
-    readonly stop_sequence: string | null
-  }
-  readonly usage: {
-    readonly output_tokens: number
-  }
-}
-
-interface MessageStopEvent {
-  readonly type: "message_stop"
-}
-
-interface ContentBlockStartEvent {
-  readonly type: "content_block_start"
-  readonly index: number
-  readonly content_block:
-    | typeof Generated.ResponseTextBlock.Encoded
-    | typeof Generated.ResponseToolUseBlock.Encoded
-}
-
-interface ContentBlockDeltaEvent {
-  readonly type: "content_block_delta"
-  readonly index: number
-  readonly delta:
-    | CitationsDelta
-    | InputJsonContentBlockDelta
-    | TextContentBlockDelta
-}
-
-interface CitationsDelta {
-  readonly type: "citations_delta"
-  readonly citation: NonNullable<
-    (typeof Generated.ResponseTextBlock.Encoded)["citations"]
-  >[number]
-}
-
-interface InputJsonContentBlockDelta {
-  readonly type: "input_json_delta"
-  readonly partial_json: string
-}
-
-interface TextContentBlockDelta {
-  readonly type: "text_delta"
-  readonly text: string
-}
-
-interface ContentBlockStopEvent {
-  readonly type: "content_block_stop"
-  readonly index: number
-}
-
-interface ErrorEvent {
-  readonly type: "error"
-  readonly error: {
-    readonly type:
-      | "api_error"
-      | "authentication_error"
-      | "invalid_request_error"
-      | "not_found_error"
-      | "overloaded_error"
-      | "permission_error"
-      | "rate_limit_error"
-      | "request_too_large"
-    readonly message: string
-  }
-}
+export const layer = (options: Options): Layer.Layer<AnthropicClient, never, HttpClient.HttpClient> =>
+  Layer.effect(AnthropicClient, make(options))
 
 /**
- * @since 1.0.0
- * @category models
+ * Creates a layer for the Anthropic client, loading the requisite configuration
+ * via Effect's `Config` module.
+ *
+ * **When to use**
+ *
+ * Use when you want to provide the Anthropic client as a `Layer` with
+ * configuration loaded from Effect's `Config` module, such as from environment
+ * variables or a secrets provider.
+ *
+ * @see {@link layer} for providing the client from explicit options instead of `Config`
+ * @see {@link make} for constructing the client service effectfully
+ *
+ * @category layers
+ * @since 4.0.0
  */
-export class StreamChunk extends Data.Class<{
-  readonly parts: Array<StreamChunkPart>
-}> {
+export const layerConfig = (options?: {
   /**
-   * @since 1.0.0
+   * The Anthropic API key for authentication. Requests are made without authentication when this is omitted, which is
+   * useful for proxied setups or testing.
    */
-  get text(): Option.Option<string> {
-    return this.parts[0]?._tag === "Content"
-      ? Option.some(this.parts[0].content)
-      : Option.none()
-  }
+  readonly apiKey?: Config.Config<Redacted.Redacted<string> | undefined> | undefined
+
   /**
-   * @since 1.0.0
+   * The base URL for the Anthropic API. Override this to use a proxy or a different API-compatible endpoint.
+   *
+   * @default "https://api.anthropic.com"
    */
-  get asAiResponse(): AiResponse.AiResponse {
-    if (this.parts.length === 0) {
-      return AiResponse.AiResponse.fromText({
-        role: AiRole.model,
-        content: ""
+  readonly apiUrl?: Config.Config<string> | undefined
+
+  /**
+   * The Anthropic API version header value. This controls which version of the API to use.
+   *
+   * @default "2023-06-01"
+   */
+  readonly apiVersion?: Config.Config<string> | undefined
+
+  /**
+   * Optional transformer for the underlying HTTP client, such as middleware, logging, or custom request/response
+   * handling.
+   */
+  readonly transformClient?: ((client: HttpClient.HttpClient) => HttpClient.HttpClient) | undefined
+}): Layer.Layer<AnthropicClient, Config.ConfigError, HttpClient.HttpClient> =>
+  Layer.effect(
+    AnthropicClient,
+    Effect.gen(function*() {
+      const apiKey = Predicate.isNotUndefined(options?.apiKey)
+        ? yield* options.apiKey :
+        undefined
+      const apiUrl = Predicate.isNotUndefined(options?.apiUrl)
+        ? yield* options.apiUrl :
+        undefined
+      const apiVersion = Predicate.isNotUndefined(options?.apiVersion)
+        ? yield* options.apiVersion :
+        undefined
+      return yield* make({
+        apiKey,
+        apiUrl,
+        apiVersion,
+        transformClient: options?.transformClient
       })
-    }
-    const part = this.parts[0]
-    switch (part._tag) {
-      case "Content":
-        return AiResponse.AiResponse.fromText({
-          role: AiRole.model,
-          content: part.content
-        })
-      case "ToolCall":
-        return new AiResponse.AiResponse({
-          role: AiRole.model,
-          parts: Chunk.of(
-            AiResponse.ToolCallPart.fromUnknown({
-              id: part.id,
-              name: part.name,
-              params: part.arguments
-            })
-          )
-        })
-      case "Usage":
-        return AiResponse.AiResponse.empty
-    }
-  }
-}
-
-/**
- * @since 1.0.0
- * @category models
- */
-export type StreamChunkPart = ContentPart | ToolCallPart | UsagePart
-
-/**
- * @since 1.0.0
- * @category models
- */
-export interface ContentPart {
-  readonly _tag: "Content"
-  readonly content: string
-}
-
-/**
- * @since 1.0.0
- * @category models
- */
-export interface ToolCallPart {
-  readonly _tag: "ToolCall"
-  readonly id: string
-  readonly name: string
-  readonly arguments: unknown
-}
-
-/**
- * @since 1.0.0
- * @category models
- */
-export interface UsagePart {
-  readonly _tag: "Usage"
-  readonly id: string
-  readonly model: string
-  readonly inputTokens: number
-  readonly outputTokens: number
-  readonly finishReasons: ReadonlyArray<string>
-}
+    })
+  )

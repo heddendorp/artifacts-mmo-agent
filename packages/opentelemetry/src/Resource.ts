@@ -1,92 +1,121 @@
 /**
- * @since 1.0.0
+ * OpenTelemetry resource service and layers.
+ *
+ * An OpenTelemetry resource identifies the process or service that emits spans,
+ * metrics, and logs. This module stores that resource in Effect context and
+ * provides layers for creating it from explicit service metadata, from
+ * `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES`, or as an empty resource.
+ * It also includes `configToAttributes` for turning service metadata into raw
+ * OpenTelemetry attributes.
+ *
+ * @since 4.0.0
  */
+import type * as OtelApi from "@opentelemetry/api"
 import * as Resources from "@opentelemetry/resources"
-import {
-  SEMRESATTRS_SERVICE_NAME,
-  SEMRESATTRS_SERVICE_VERSION,
-  SEMRESATTRS_TELEMETRY_SDK_LANGUAGE,
-  SEMRESATTRS_TELEMETRY_SDK_NAME,
-  TELEMETRYSDKLANGUAGEVALUES_NODEJS,
-  TELEMETRYSDKLANGUAGEVALUES_WEBJS
-} from "@opentelemetry/semantic-conventions"
+import * as OtelSemConv from "@opentelemetry/semantic-conventions"
 import * as Arr from "effect/Array"
 import * as Config from "effect/Config"
-import { GenericTag } from "effect/Context"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 
 /**
- * @since 1.0.0
- * @category identifier
+ * Service tag for OpenTelemetry metadata attached to emitted telemetry.
+ *
+ * **When to use**
+ *
+ * Use to provide process, service, and deployment metadata that should be
+ * attached to spans, metrics, and logs.
+ *
+ * @category services
+ * @since 4.0.0
  */
-export interface Resource {
-  readonly _: unique symbol
-}
+export class Resource extends Context.Service<
+  Resource,
+  Resources.Resource
+>()("@effect/opentelemetry/Resource") {}
 
 /**
- * @since 1.0.0
- * @category tag
- */
-export const Resource = GenericTag<Resource, Resources.Resource>("@effect/opentelemetry/Resource")
-
-/**
- * @since 1.0.0
- * @category layer
+ * Creates a `Resource` layer from service metadata and additional OpenTelemetry attributes.
+ *
+ * @category layers
+ * @since 4.0.0
  */
 export const layer = (config: {
   readonly serviceName: string
   readonly serviceVersion?: string
-  readonly attributes?: Resources.ResourceAttributes
+  readonly attributes?: OtelApi.Attributes
 }) =>
   Layer.succeed(
     Resource,
-    new Resources.Resource(configToAttributes(config))
+    Resources.resourceFromAttributes(configToAttributes(config))
   )
 
 /**
- * @since 1.0.0
- * @category config
+ * Converts resource configuration into OpenTelemetry attributes, adding service name, optional service version, and telemetry SDK metadata.
+ *
+ * **When to use**
+ *
+ * Use to turn explicit service metadata into a raw OpenTelemetry attribute map
+ * for lower-level resource construction or merging with environment-derived
+ * attributes via `layerFromEnv`.
+ *
+ * **Details**
+ *
+ * The returned record copies `attributes` first, then sets `service.name`,
+ * `telemetry.sdk.name`, and `telemetry.sdk.language`. `service.version` is
+ * included only when `serviceVersion` is provided.
+ *
+ * **Gotchas**
+ *
+ * Custom values for `service.name` and `telemetry.sdk.*` are overwritten by this
+ * helper. An empty `serviceVersion` is treated as absent.
+ *
+ * @see {@link layer} for creating a `Resource` layer from explicit metadata
+ * @see {@link layerFromEnv} for merging attributes with OpenTelemetry environment variables
+ *
+ * @category configuration
+ * @since 4.0.0
  */
 export const configToAttributes = (options: {
   readonly serviceName: string
   readonly serviceVersion?: string
-  readonly attributes?: Resources.ResourceAttributes
+  readonly attributes?: OtelApi.Attributes
 }): Record<string, string> => {
   const attributes: Record<string, string> = {
     ...(options.attributes ?? undefined),
-    [SEMRESATTRS_SERVICE_NAME]: options.serviceName,
-    [SEMRESATTRS_TELEMETRY_SDK_NAME]: "@effect/opentelemetry",
-    [SEMRESATTRS_TELEMETRY_SDK_LANGUAGE]: typeof (globalThis as any).document === "undefined"
-      ? TELEMETRYSDKLANGUAGEVALUES_NODEJS
-      : TELEMETRYSDKLANGUAGEVALUES_WEBJS
+    [OtelSemConv.ATTR_SERVICE_NAME]: options.serviceName,
+    [OtelSemConv.ATTR_TELEMETRY_SDK_NAME]: "@effect/opentelemetry",
+    [OtelSemConv.ATTR_TELEMETRY_SDK_LANGUAGE]: typeof (globalThis as any).document === "undefined"
+      ? OtelSemConv.TELEMETRY_SDK_LANGUAGE_VALUE_NODEJS
+      : OtelSemConv.TELEMETRY_SDK_LANGUAGE_VALUE_WEBJS
   }
   if (options.serviceVersion) {
-    attributes[SEMRESATTRS_SERVICE_VERSION] = options.serviceVersion
+    attributes[OtelSemConv.ATTR_SERVICE_VERSION] = options.serviceVersion
   }
   return attributes
 }
 
 /**
- * @since 1.0.0
- * @category layer
+ * Creates a `Resource` layer from OpenTelemetry environment variables, optionally merging additional attributes.
+ *
+ * @category layers
+ * @since 4.0.0
  */
 export const layerFromEnv = (
   additionalAttributes?:
-    | Resources.ResourceAttributes
+    | OtelApi.Attributes
     | undefined
 ): Layer.Layer<Resource> =>
   Layer.effect(
     Resource,
     Effect.gen(function*() {
-      const serviceName = yield* pipe(Config.string("OTEL_SERVICE_NAME"), Config.option, Effect.orDie)
-      const attributes = yield* pipe(
-        Config.string("OTEL_RESOURCE_ATTRIBUTES"),
+      const serviceName = yield* Config.option(Config.string("OTEL_SERVICE_NAME"))
+      const attributes = yield* Config.string("OTEL_RESOURCE_ATTRIBUTES").pipe(
         Config.withDefault(""),
         Config.map((s) => {
           const attrs = s.split(",")
-          return Arr.reduce(attrs, {} as Resources.ResourceAttributes, (acc, attr) => {
+          return Arr.reduce(attrs, {} as OtelApi.Attributes, (acc, attr) => {
             const parts = attr.split("=")
             if (parts.length !== 2) {
               return acc
@@ -94,24 +123,25 @@ export const layerFromEnv = (
             acc[parts[0].trim()] = parts[1].trim()
             return acc
           })
-        }),
-        Effect.orDie
+        })
       )
       if (serviceName._tag === "Some") {
-        attributes[SEMRESATTRS_SERVICE_NAME] = serviceName.value
+        attributes[OtelSemConv.ATTR_SERVICE_NAME] = serviceName.value
       }
       if (additionalAttributes) {
         Object.assign(attributes, additionalAttributes)
       }
-      return new Resources.Resource(attributes)
-    })
+      return Resources.resourceFromAttributes(attributes)
+    }).pipe(Effect.orDie)
   )
 
 /**
- * @since 2.0.0
- * @category layer
+ * Layer that provides an empty OpenTelemetry resource.
+ *
+ * @category layers
+ * @since 4.0.0
  */
 export const layerEmpty = Layer.succeed(
   Resource,
-  Resources.Resource.empty()
+  Resources.emptyResource()
 )
