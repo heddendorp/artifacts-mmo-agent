@@ -7,7 +7,7 @@ import { transformError } from "./transform-errors.ts";
 
 const getMaps = tool(
 	async ({ contentType }, config) => {
-		const { data, error } = await artifactClient.GET("/maps", {
+		const { data } = await artifactClient.GET("/maps", {
 			params: { query: { content_type: contentType } },
 		});
 		if (data) {
@@ -23,7 +23,7 @@ const getMaps = tool(
 				},
 			});
 		}
-		transformError(error.error);
+		throw new Error("The API returned no map data");
 	},
 	{
 		name: "get_maps",
@@ -39,6 +39,7 @@ const getMaps = tool(
 					"grand_exchange",
 					"tasks_master",
 					"npc",
+					"raid",
 				])
 				.optional()
 				.describe("Limit returned map tiles to a specific content type"),
@@ -47,9 +48,16 @@ const getMaps = tool(
 );
 
 const getItems = tool(
-	async ({ type, craftSkill }, config) => {
-		const { data, error } = await artifactClient.GET("/items", {
-			params: { query: { type, craft_skill: craftSkill } },
+	async ({ type, craftSkill, maxLevel, name }, config) => {
+		const { data } = await artifactClient.GET("/items", {
+			params: {
+				query: {
+					type,
+					craft_skill: craftSkill,
+					max_level: maxLevel,
+					name,
+				},
+			},
 		});
 		if (data) {
 			return new Command({
@@ -64,7 +72,7 @@ const getItems = tool(
 				},
 			});
 		}
-		transformError(error.error);
+		throw new Error("The API returned no item data");
 	},
 	{
 		name: "get_items",
@@ -190,7 +198,7 @@ const getTask = tool(
 
 const getMonsters = tool(
 	async (_, config) => {
-		const { data, error } = await artifactClient.GET("/monsters");
+		const { data } = await artifactClient.GET("/monsters");
 		if (data) {
 			return new Command({
 				update: {
@@ -204,7 +212,7 @@ const getMonsters = tool(
 				},
 			});
 		}
-		transformError(error.error);
+		throw new Error("The API returned no monster data");
 	},
 	{
 		name: "get_monsters",
@@ -225,9 +233,8 @@ const fight = tool(
 		);
 		if (data) {
 			return data.data;
-		} else {
-			return transformError(error.error);
 		}
+		return transformError(error.error);
 	},
 	{
 		name: "fight",
@@ -248,9 +255,8 @@ const gather = tool(
 		);
 		if (data) {
 			return data.data;
-		} else {
-			return transformError(error.error);
 		}
+		return transformError(error.error);
 	},
 	{
 		name: "gather",
@@ -271,9 +277,8 @@ const acceptTask = tool(
 		);
 		if (data) {
 			return data.data;
-		} else {
-			return transformError(error.error);
 		}
+		return transformError(error.error);
 	},
 	{
 		name: "accept_task",
@@ -297,9 +302,8 @@ const completeTask = tool(
 		);
 		if (data) {
 			return data.data;
-		} else {
-			return transformError(error.error);
 		}
+		return transformError(error.error);
 	},
 	{
 		name: "complete_task",
@@ -324,9 +328,8 @@ const crafting = tool(
 		);
 		if (data) {
 			return data.data;
-		} else {
-			return transformError(error.error);
 		}
+		return transformError(error.error);
 	},
 	{
 		name: "crafting",
@@ -348,9 +351,8 @@ const useItem = tool(
 		});
 		if (data) {
 			return data.data;
-		} else {
-			return transformError(error.error);
 		}
+		return transformError(error.error);
 	},
 	{
 		name: "use_item",
@@ -369,14 +371,13 @@ const unequipItem = tool(
 			"/my/{name}/action/unequip",
 			{
 				params: { path: { name } },
-				body: { slot, quantity },
+				body: [{ slot, quantity }],
 			},
 		);
 		if (data) {
 			return data.data;
-		} else {
-			return transformError(error.error);
 		}
+		return transformError(error.error);
 	},
 	{
 		name: "unequip_item",
@@ -419,14 +420,13 @@ const equipItem = tool(
 			"/my/{name}/action/equip",
 			{
 				params: { path: { name } },
-				body: { slot, quantity, code },
+				body: [{ slot, quantity, code }],
 			},
 		);
 		if (data) {
 			return data.data;
-		} else {
-			return transformError(error.error);
 		}
+		return transformError(error.error);
 	},
 	{
 		name: "equip_item",
@@ -474,14 +474,13 @@ const rest = tool(
 		);
 		if (data) {
 			return data.data;
-		} else {
-			return transformError(error.error);
 		}
+		return transformError(error.error);
 	},
 	{
 		name: "rest",
 		description:
-			"Recovers hit points by resting. (1 second per 5 HP, minimum 3 seconds)",
+			"Recovers hit points by resting. (1 second per 1% missing HP, minimum 3 seconds)",
 		schema: z.object({
 			name: z.string().describe("The name of the character to rest"),
 		}),

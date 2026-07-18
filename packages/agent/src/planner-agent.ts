@@ -59,13 +59,16 @@ async function replanStep(
 			.map(([step, result]) => `${step}: ${result}`)
 			.join("\n"),
 	});
-	const toolCall = output;
-
-	if (toolCall.type == "response") {
-		return { response: toolCall.args?.response };
+	const [toolCall] = output;
+	if (!toolCall) {
+		throw new Error("The replanner did not return a plan or a response");
 	}
 
-	return { plan: toolCall.args?.steps };
+	if (toolCall.type === "response") {
+		return { response: toolCall.args.response };
+	}
+
+	return { plan: toolCall.args.steps };
 }
 
 function shouldEnd(state: typeof PlanExecuteState.State) {

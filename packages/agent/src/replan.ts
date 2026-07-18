@@ -54,7 +54,11 @@ Otherwise, fill out the plan.
 Only add steps to the plan that still NEED to be done. Do not return previously done steps as part of the plan.`,
 );
 
-const parser = new JsonOutputToolsParser();
+export type ReplanToolCall =
+	| { type: "response"; args: { response: string } }
+	| { type: "plan"; args: { steps: string[] } };
+
+const parser = new JsonOutputToolsParser<ReplanToolCall[]>();
 export const replanner = replannerPrompt
 	.pipe(
 		new ChatVertexAI({

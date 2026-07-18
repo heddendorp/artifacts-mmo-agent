@@ -8,7 +8,7 @@ export const artifactClient = createClient<paths>({
 
 const authMiddleware: Middleware = {
 	onRequest({ request }) {
-		request.headers.set("Authorization", "Bearer " + token);
+		request.headers.set("Authorization", `Bearer ${token}`);
 	},
 };
 

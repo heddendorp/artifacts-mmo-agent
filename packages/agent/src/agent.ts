@@ -10,6 +10,7 @@ import {
 } from "@langchain/langgraph";
 import { ToolNode, createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOllama } from "@langchain/ollama";
+import type { components } from "artifact-api/schema";
 import { tools } from "./tools.ts";
 
 const rules = ` 
@@ -40,22 +41,25 @@ const StateAnnotation = Annotation.Root({
 	// user provided
 	characterName: Annotation<string>,
 	// updated by the tool
-	mapTiles: Annotation<any[]>,
-	monsters: Annotation<any[]>,
-	items: Annotation<any[]>,
-	characterData: Annotation<any[]>({
+	mapTiles: Annotation<components["schemas"]["MapSchema"][]>,
+	monsters: Annotation<components["schemas"]["MonsterSchema"][]>,
+	items: Annotation<components["schemas"]["ItemSchema"][]>,
+	characterData: Annotation<
+		Record<string, components["schemas"]["CharacterSchema"]>[]
+	>({
 		default: () => [],
 		reducer: (a, b) => a.concat(b),
 	}),
-	task: Annotation<any>,
+	task: Annotation<components["schemas"]["TaskFullSchema"] | undefined>,
 });
 
-const stateModifier = (state: typeof StateAnnotation.State) => {
-	const mapTiles = state.mapTiles;
-	const characterData = state.characterData;
-	const monsters = state.monsters;
-	const items = state.items;
-	const task = state.task;
+const stateModifier = (state: typeof MessagesAnnotation.State) => {
+	const customState = state as typeof StateAnnotation.State;
+	const mapTiles = customState.mapTiles;
+	const characterData = customState.characterData;
+	const monsters = customState.monsters;
+	const items = customState.items;
+	const task = customState.task;
 	const systemMessage = new SystemMessage(`
 	${rules}
 	There is already some information.
