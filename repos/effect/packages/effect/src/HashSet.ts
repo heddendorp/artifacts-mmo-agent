@@ -1,309 +1,605 @@
 /**
+ * Stores unique values in an immutable hash set.
+ *
+ * A `HashSet<A>` contains at most one value for each equality class according
+ * to Effect's `Equal` and `Hash` rules. Membership checks, additions, removals,
+ * and set operations return new sets. This module also includes constructors,
+ * union, intersection, difference, subset checks, mapping, filtering, and
+ * reducing helpers.
+ *
  * @since 2.0.0
  */
 
-import type { Equal } from "./Equal.js"
-import type { Inspectable } from "./Inspectable.js"
-import * as HS from "./internal/hashSet.js"
-import type { Pipeable } from "./Pipeable.js"
-import type { Predicate, Refinement } from "./Predicate.js"
-import type { NoInfer } from "./Types.js"
+import type { Equal } from "./Equal.ts"
+import * as Dual from "./Function.ts"
+import type { Inspectable } from "./Inspectable.ts"
+import * as internal from "./internal/hashSet.ts"
+import type { Pipeable } from "./Pipeable.ts"
+import type { Predicate, Refinement } from "./Predicate.ts"
+import type { NoInfer } from "./Types.ts"
 
-const TypeId: unique symbol = HS.HashSetTypeId as TypeId
-
-/**
- * @since 2.0.0
- * @category symbol
- */
-export type TypeId = typeof TypeId
+const TypeId = internal.HashSetTypeId
 
 /**
- * @since 2.0.0
+ * A HashSet is an immutable set data structure that provides efficient storage
+ * and retrieval of unique values. It uses a HashMap internally for optimal performance.
+ *
+ * **Example** (Creating and updating a HashSet)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * // Create a HashSet
+ * const set = HashSet.make("apple", "banana", "cherry")
+ *
+ * // Check membership
+ * console.log(HashSet.has(set, "apple")) // true
+ * console.log(HashSet.has(set, "grape")) // false
+ *
+ * // Add values (returns new HashSet)
+ * const updated = HashSet.add(set, "grape")
+ * console.log(HashSet.size(updated)) // 4
+ *
+ * // Remove values (returns new HashSet)
+ * const smaller = HashSet.remove(set, "banana")
+ * console.log(HashSet.size(smaller)) // 2
+ * ```
+ *
  * @category models
+ * @since 2.0.0
  */
-export interface HashSet<out A> extends Iterable<A>, Equal, Pipeable, Inspectable {
-  readonly [TypeId]: TypeId
+export interface HashSet<out Value> extends Iterable<Value>, Equal, Pipeable, Inspectable {
+  readonly [TypeId]: typeof TypeId
 }
 
 /**
+ * The HashSet namespace contains type-level utilities and helper types
+ * for working with HashSet instances.
+ *
+ * **Example** (Extracting value types from a HashSet)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * // Create a concrete HashSet for type extraction
+ * const fruits = HashSet.make("apple", "banana", "cherry")
+ *
+ * // Extract the value type for reuse
+ * type Fruit = HashSet.HashSet.Value<typeof fruits> // string
+ *
+ * // Use extracted type in functions
+ * const processFruit = (fruit: Fruit) => {
+ *   return `Processing ${fruit}`
+ * }
+ * ```
+ *
  * @since 2.0.0
- * @category refinements
+ */
+export declare namespace HashSet {
+  /**
+   * Extracts the element type from a `HashSet`.
+   *
+   * **Details**
+   *
+   * For `HashSet.HashSet<A>`, `HashSet.Value<...>` resolves to `A`.
+   *
+   * **Example** (Extracting a HashSet value type)
+   *
+   * ```ts
+   * import { HashSet } from "effect"
+   *
+   * const numbers = HashSet.make(1, 2, 3, 4, 5)
+   *
+   * // Extract the value type
+   * type NumberType = HashSet.HashSet.Value<typeof numbers> // number
+   *
+   * const processNumber = (n: NumberType) => n * 2
+   * ```
+   *
+   * @category utility types
+   * @since 4.0.0
+   */
+  export type Value<T> = T extends HashSet<infer V> ? V : never
+}
+
+/**
+ * Creates an empty HashSet.
+ *
+ * **Example** (Creating an empty HashSet)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const set = HashSet.empty<string>()
+ *
+ * console.log(HashSet.size(set)) // 0
+ * console.log(HashSet.isEmpty(set)) // true
+ *
+ * // Add some values
+ * const withValues = HashSet.add(HashSet.add(set, "hello"), "world")
+ * console.log(HashSet.size(withValues)) // 2
+ * ```
+ *
+ * @category constructors
+ * @since 2.0.0
+ */
+export const empty: <V = never>() => HashSet<V> = internal.empty
+
+/**
+ * Creates a HashSet from a variable number of values.
+ *
+ * **Example** (Creating a HashSet from values)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const fruits = HashSet.make("apple", "banana", "cherry")
+ * console.log(HashSet.size(fruits)) // 3
+ *
+ * const numbers = HashSet.make(1, 2, 3, 2, 1) // Duplicates ignored
+ * console.log(HashSet.size(numbers)) // 3
+ *
+ * const mixed = HashSet.make("hello", 42, true)
+ * console.log(HashSet.size(mixed)) // 3
+ * ```
+ *
+ * @category constructors
+ * @since 2.0.0
+ */
+export const make: <Values extends ReadonlyArray<any>>(
+  ...values: Values
+) => HashSet<Values[number]> = internal.make
+
+/**
+ * Creates a HashSet from an iterable collection of values.
+ *
+ * **Example** (Creating a HashSet from an iterable)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const fromArray = HashSet.fromIterable(["a", "b", "c", "b", "a"])
+ * console.log(HashSet.size(fromArray)) // 3
+ *
+ * const fromSet = HashSet.fromIterable(new Set([1, 2, 3]))
+ * console.log(HashSet.size(fromSet)) // 3
+ *
+ * const fromString = HashSet.fromIterable("hello")
+ * console.log(Array.from(fromString)) // ["h", "e", "l", "o"]
+ * ```
+ *
+ * @category constructors
+ * @since 2.0.0
+ */
+export const fromIterable: <V>(values: Iterable<V>) => HashSet<V> = internal.fromIterable
+
+/**
+ * Checks whether a value is a HashSet.
+ *
+ * **Example** (Checking for a HashSet)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const set = HashSet.make(1, 2, 3)
+ * const array = [1, 2, 3]
+ *
+ * console.log(HashSet.isHashSet(set)) // true
+ * console.log(HashSet.isHashSet(array)) // false
+ * console.log(HashSet.isHashSet(null)) // false
+ * ```
+ *
+ * @category guards
+ * @since 2.0.0
  */
 export const isHashSet: {
-  <A>(u: Iterable<A>): u is HashSet<A>
+  <V>(u: Iterable<V>): u is HashSet<V>
   (u: unknown): u is HashSet<unknown>
-} = HS.isHashSet
+} = internal.isHashSet
 
 /**
- * Creates an empty `HashSet`.
+ * Adds a value to the HashSet, returning a new HashSet.
  *
- * @since 2.0.0
- * @category constructors
- */
-export const empty: <A = never>() => HashSet<A> = HS.empty
-
-/**
- * Creates a new `HashSet` from an iterable collection of values.
+ * **Example** (Adding values to a HashSet)
  *
- * @since 2.0.0
- * @category constructors
- */
-export const fromIterable: <A>(elements: Iterable<A>) => HashSet<A> = HS.fromIterable
-
-/**
- * Construct a new `HashSet` from a variable number of values.
+ * ```ts
+ * import { HashSet } from "effect"
  *
- * @since 2.0.0
- * @category constructors
- */
-export const make: <As extends ReadonlyArray<any>>(...elements: As) => HashSet<As[number]> = HS.make
-
-/**
- * Checks if the specified value exists in the `HashSet`.
+ * const set = HashSet.make("a", "b")
+ * const withC = HashSet.add(set, "c")
  *
- * @since 2.0.0
- * @category elements
- */
-export const has: {
-  <A>(value: A): (self: HashSet<A>) => boolean
-  <A>(self: HashSet<A>, value: A): boolean
-} = HS.has
-
-/**
- * Check if a predicate holds true for some `HashSet` element.
+ * console.log(HashSet.size(set)) // 2 (original unchanged)
+ * console.log(HashSet.size(withC)) // 3
+ * console.log(HashSet.has(withC, "c")) // true
  *
- * @since 2.0.0
- * @category elements
- */
-export const some: {
-  <A>(f: Predicate<A>): (self: HashSet<A>) => boolean
-  <A>(self: HashSet<A>, f: Predicate<A>): boolean
-} = HS.some
-
-/**
- * Check if a predicate holds true for every `HashSet` element.
+ * // Adding existing value has no effect
+ * const same = HashSet.add(set, "a")
+ * console.log(HashSet.size(same)) // 2
+ * ```
  *
- * @since 2.0.0
- * @category elements
- */
-export const every: {
-  <A, B extends A>(refinement: Refinement<NoInfer<A>, B>): (self: HashSet<A>) => self is HashSet<B>
-  <A>(predicate: Predicate<A>): (self: HashSet<A>) => boolean
-  <A, B extends A>(self: HashSet<A>, refinement: Refinement<A, B>): self is HashSet<B>
-  <A>(self: HashSet<A>, predicate: Predicate<A>): boolean
-} = HS.every
-
-/**
- * Returns `true` if and only if every element in the this `HashSet` is an
- * element of the second set,
- *
- * **NOTE**: the hash and equal of both sets must be the same.
- *
- * @since 2.0.0
- * @category elements
- */
-export const isSubset: {
-  <A>(that: HashSet<A>): (self: HashSet<A>) => boolean
-  <A>(self: HashSet<A>, that: HashSet<A>): boolean
-} = HS.isSubset
-
-/**
- * Returns an `IterableIterator` of the values in the `HashSet`.
- *
- * @since 2.0.0
- * @category getters
- */
-export const values: <A>(self: HashSet<A>) => IterableIterator<A> = HS.values
-
-/**
- * Returns an `Array` of the values within the `HashSet`.
- *
- * @since 3.13.0
- * @category getters
- */
-export const toValues = <A>(self: HashSet<A>): Array<A> => Array.from(values(self))
-
-/**
- * Calculates the number of values in the `HashSet`.
- *
- * @since 2.0.0
- * @category getters
- */
-export const size: <A>(self: HashSet<A>) => number = HS.size
-
-/**
- * Marks the `HashSet` as mutable.
- *
- * @since 2.0.0
- */
-export const beginMutation: <A>(self: HashSet<A>) => HashSet<A> = HS.beginMutation
-
-/**
- * Marks the `HashSet` as immutable.
- *
- * @since 2.0.0
- */
-export const endMutation: <A>(self: HashSet<A>) => HashSet<A> = HS.endMutation
-
-/**
- * Mutates the `HashSet` within the context of the provided function.
- *
- * @since 2.0.0
- */
-export const mutate: {
-  <A>(f: (set: HashSet<A>) => void): (self: HashSet<A>) => HashSet<A>
-  <A>(self: HashSet<A>, f: (set: HashSet<A>) => void): HashSet<A>
-} = HS.mutate
-
-/**
- * Adds a value to the `HashSet`.
- *
+ * @category mutations
  * @since 2.0.0
  */
 export const add: {
-  <A>(value: A): (self: HashSet<A>) => HashSet<A>
-  <A>(self: HashSet<A>, value: A): HashSet<A>
-} = HS.add
+  <V>(value: V): (self: HashSet<V>) => HashSet<V>
+  <V>(self: HashSet<V>, value: V): HashSet<V>
+} = Dual.dual<
+  <V>(value: V) => (self: HashSet<V>) => HashSet<V>,
+  <V>(self: HashSet<V>, value: V) => HashSet<V>
+>(2, internal.add)
 
 /**
- * Removes a value from the `HashSet`.
+ * Checks whether the HashSet contains the specified value.
  *
+ * **Example** (Checking HashSet membership)
+ *
+ * ```ts
+ * import { Equal, Hash, HashSet } from "effect"
+ *
+ * // Works with any type that implements Equal
+ *
+ * const set = HashSet.make("apple", "banana", "cherry")
+ *
+ * console.log(HashSet.has(set, "apple")) // true
+ * console.log(HashSet.has(set, "grape")) // false
+ *
+ * class Person implements Equal.Equal {
+ *   constructor(readonly name: string) {}
+ *
+ *   [Equal.symbol](other: unknown) {
+ *     return other instanceof Person && this.name === other.name
+ *   }
+ *
+ *   [Hash.symbol](): number {
+ *     return Hash.string(this.name)
+ *   }
+ * }
+ *
+ * const people = HashSet.make(new Person("Alice"), new Person("Bob"))
+ * console.log(HashSet.has(people, new Person("Alice"))) // true
+ * ```
+ *
+ * @category elements
+ * @since 2.0.0
+ */
+export const has: {
+  <V>(value: V): (self: HashSet<V>) => boolean
+  <V>(self: HashSet<V>, value: V): boolean
+} = Dual.dual<
+  <V>(value: V) => (self: HashSet<V>) => boolean,
+  <V>(self: HashSet<V>, value: V) => boolean
+>(2, internal.has)
+
+/**
+ * Removes a value from the HashSet, returning a new HashSet.
+ *
+ * **Example** (Removing values from a HashSet)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const set = HashSet.make("a", "b", "c")
+ * const withoutB = HashSet.remove(set, "b")
+ *
+ * console.log(HashSet.size(set)) // 3 (original unchanged)
+ * console.log(HashSet.size(withoutB)) // 2
+ * console.log(HashSet.has(withoutB, "b")) // false
+ *
+ * // Removing non-existent value has no effect
+ * const same = HashSet.remove(set, "d")
+ * console.log(HashSet.size(same)) // 3
+ * ```
+ *
+ * @category mutations
  * @since 2.0.0
  */
 export const remove: {
-  <A>(value: A): (self: HashSet<A>) => HashSet<A>
-  <A>(self: HashSet<A>, value: A): HashSet<A>
-} = HS.remove
+  <V>(value: V): (self: HashSet<V>) => HashSet<V>
+  <V>(self: HashSet<V>, value: V): HashSet<V>
+} = Dual.dual<
+  <V>(value: V) => (self: HashSet<V>) => HashSet<V>,
+  <V>(self: HashSet<V>, value: V) => HashSet<V>
+>(2, internal.remove)
 
 /**
- * Computes the set difference between this `HashSet` and the specified
- * `Iterable<A>`.
+ * Returns the number of values in the HashSet.
  *
- * **NOTE**: the hash and equal of the values in both the set and the iterable
- * must be the same.
+ * **Example** (Getting the HashSet size)
  *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const empty = HashSet.empty<string>()
+ * console.log(HashSet.size(empty)) // 0
+ *
+ * const small = HashSet.make("a", "b")
+ * console.log(HashSet.size(small)) // 2
+ *
+ * const withDuplicates = HashSet.fromIterable(["x", "y", "z", "x", "y"])
+ * console.log(HashSet.size(withDuplicates)) // 3
+ * ```
+ *
+ * @category getters
  * @since 2.0.0
  */
-export const difference: {
-  <A>(that: Iterable<A>): (self: HashSet<A>) => HashSet<A>
-  <A>(self: HashSet<A>, that: Iterable<A>): HashSet<A>
-} = HS.difference
+export const size: <V>(self: HashSet<V>) => number = internal.size
 
 /**
- * Returns a `HashSet` of values which are present in both this set and that
- * `Iterable<A>`.
+ * Checks whether the HashSet is empty.
  *
- * **NOTE**: the hash and equal of the values in both the set and the iterable
- * must be the same.
+ * **Example** (Checking whether a HashSet is empty)
  *
- * @since 2.0.0
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const empty = HashSet.empty<string>()
+ * console.log(HashSet.isEmpty(empty)) // true
+ *
+ * const nonEmpty = HashSet.make("a")
+ * console.log(HashSet.isEmpty(nonEmpty)) // false
+ * ```
+ *
+ * @category getters
+ * @since 4.0.0
  */
-export const intersection: {
-  <A>(that: Iterable<A>): (self: HashSet<A>) => HashSet<A>
-  <A>(self: HashSet<A>, that: Iterable<A>): HashSet<A>
-} = HS.intersection
+export const isEmpty: <V>(self: HashSet<V>) => boolean = internal.isEmpty
 
 /**
- * Computes the set union `(`self` + `that`)` between this `HashSet` and the
- * specified `Iterable<A>`.
+ * Creates the union of two HashSets.
  *
- * **NOTE**: the hash and equal of the values in both the set and the iterable
- * must be the same.
+ * **Example** (Combining HashSets)
  *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const set1 = HashSet.make("a", "b")
+ * const set2 = HashSet.make("b", "c")
+ * const combined = HashSet.union(set1, set2)
+ *
+ * console.log(Array.from(combined).sort()) // ["a", "b", "c"]
+ * console.log(HashSet.size(combined)) // 3
+ * ```
+ *
+ * @category combinators
  * @since 2.0.0
  */
 export const union: {
-  <A>(that: Iterable<A>): (self: HashSet<A>) => HashSet<A>
-  <A>(self: HashSet<A>, that: Iterable<A>): HashSet<A>
-} = HS.union
+  <V1>(that: HashSet<V1>): <V0>(self: HashSet<V0>) => HashSet<V1 | V0>
+  <V0, V1>(self: HashSet<V0>, that: HashSet<V1>): HashSet<V0 | V1>
+} = Dual.dual<
+  <V1>(that: HashSet<V1>) => <V0>(self: HashSet<V0>) => HashSet<V1 | V0>,
+  <V0, V1>(self: HashSet<V0>, that: HashSet<V1>) => HashSet<V0 | V1>
+>(2, internal.union)
 
 /**
- * Checks if a value is present in the `HashSet`. If it is present, the value
- * will be removed from the `HashSet`, otherwise the value will be added to the
- * `HashSet`.
+ * Creates the intersection of two HashSets.
  *
+ * **Example** (Finding common HashSet values)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const set1 = HashSet.make("a", "b", "c")
+ * const set2 = HashSet.make("b", "c", "d")
+ * const common = HashSet.intersection(set1, set2)
+ *
+ * console.log(Array.from(common).sort()) // ["b", "c"]
+ * console.log(HashSet.size(common)) // 2
+ * ```
+ *
+ * @category combinators
  * @since 2.0.0
  */
-export const toggle: {
-  <A>(value: A): (self: HashSet<A>) => HashSet<A>
-  <A>(self: HashSet<A>, value: A): HashSet<A>
-} = HS.toggle
+export const intersection: {
+  <V1>(that: HashSet<V1>): <V0>(self: HashSet<V0>) => HashSet<V1 & V0>
+  <V0, V1>(self: HashSet<V0>, that: HashSet<V1>): HashSet<V0 & V1>
+} = Dual.dual<
+  <V1>(that: HashSet<V1>) => <V0>(self: HashSet<V0>) => HashSet<V1 & V0>,
+  <V0, V1>(self: HashSet<V0>, that: HashSet<V1>) => HashSet<V0 & V1>
+>(2, internal.intersection)
 
 /**
- * Maps over the values of the `HashSet` using the specified function.
+ * Creates the difference of two HashSets (elements in the first set that are not in the second).
  *
+ * **Example** (Finding HashSet differences)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const set1 = HashSet.make("a", "b", "c")
+ * const set2 = HashSet.make("b", "d")
+ * const diff = HashSet.difference(set1, set2)
+ *
+ * console.log(Array.from(diff).sort()) // ["a", "c"]
+ * console.log(HashSet.size(diff)) // 2
+ * ```
+ *
+ * @category combinators
  * @since 2.0.0
+ */
+export const difference: {
+  <V1>(that: HashSet<V1>): <V0>(self: HashSet<V0>) => HashSet<V0>
+  <V0, V1>(self: HashSet<V0>, that: HashSet<V1>): HashSet<V0>
+} = Dual.dual<
+  <V1>(that: HashSet<V1>) => <V0>(self: HashSet<V0>) => HashSet<V0>,
+  <V0, V1>(self: HashSet<V0>, that: HashSet<V1>) => HashSet<V0>
+>(2, internal.difference)
+
+/**
+ * Checks whether a HashSet is a subset of another HashSet.
+ *
+ * **Example** (Checking subset relationships)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const small = HashSet.make("a", "b")
+ * const large = HashSet.make("a", "b", "c", "d")
+ * const other = HashSet.make("x", "y")
+ *
+ * console.log(HashSet.isSubset(small, large)) // true
+ * console.log(HashSet.isSubset(large, small)) // false
+ * console.log(HashSet.isSubset(small, other)) // false
+ * console.log(HashSet.isSubset(small, small)) // true
+ * ```
+ *
+ * @category elements
+ * @since 2.0.0
+ */
+export const isSubset: {
+  <V1>(that: HashSet<V1>): <V0>(self: HashSet<V0>) => boolean
+  <V0, V1>(self: HashSet<V0>, that: HashSet<V1>): boolean
+} = Dual.dual<
+  <V1>(that: HashSet<V1>) => <V0>(self: HashSet<V0>) => boolean,
+  <V0, V1>(self: HashSet<V0>, that: HashSet<V1>) => boolean
+>(2, internal.isSubset)
+
+/**
+ * Maps each value in the HashSet using the provided function.
+ *
+ * **Example** (Mapping HashSet values)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const numbers = HashSet.make(1, 2, 3)
+ * const doubled = HashSet.map(numbers, (n) => n * 2)
+ *
+ * console.log(Array.from(doubled).sort()) // [2, 4, 6]
+ * console.log(HashSet.size(doubled)) // 3
+ *
+ * // Mapping can reduce size if function produces duplicates
+ * const strings = HashSet.make("apple", "banana", "cherry")
+ * const lengths = HashSet.map(strings, (s) => s.length)
+ * console.log(Array.from(lengths).sort()) // [5, 6] (apple=5, banana=6, cherry=6)
+ * ```
+ *
  * @category mapping
+ * @since 2.0.0
  */
 export const map: {
-  <A, B>(f: (a: A) => B): (self: HashSet<A>) => HashSet<B>
-  <A, B>(self: HashSet<A>, f: (a: A) => B): HashSet<B>
-} = HS.map
+  <V, U>(f: (value: V) => U): (self: HashSet<V>) => HashSet<U>
+  <V, U>(self: HashSet<V>, f: (value: V) => U): HashSet<U>
+} = Dual.dual<
+  <V, U>(f: (value: V) => U) => (self: HashSet<V>) => HashSet<U>,
+  <V, U>(self: HashSet<V>, f: (value: V) => U) => HashSet<U>
+>(2, internal.map)
 
 /**
- * Chains over the values of the `HashSet` using the specified function.
+ * Filters the HashSet keeping only values that satisfy the predicate.
  *
- * @since 2.0.0
- * @category sequencing
- */
-export const flatMap: {
-  <A, B>(f: (a: A) => Iterable<B>): (self: HashSet<A>) => HashSet<B>
-  <A, B>(self: HashSet<A>, f: (a: A) => Iterable<B>): HashSet<B>
-} = HS.flatMap
-
-/**
- * Applies the specified function to the values of the `HashSet`.
+ * **Example** (Filtering HashSet values)
  *
- * @since 2.0.0
- * @category traversing
- */
-export const forEach: {
-  <A>(f: (value: A) => void): (self: HashSet<A>) => void
-  <A>(self: HashSet<A>, f: (value: A) => void): void
-} = HS.forEach
-
-/**
- * Reduces the specified state over the values of the `HashSet`.
+ * ```ts
+ * import { HashSet } from "effect"
  *
- * @since 2.0.0
- * @category folding
- */
-export const reduce: {
-  <A, Z>(zero: Z, f: (accumulator: Z, value: A) => Z): (self: HashSet<A>) => Z
-  <A, Z>(self: HashSet<A>, zero: Z, f: (accumulator: Z, value: A) => Z): Z
-} = HS.reduce
-
-/**
- * Filters values out of a `HashSet` using the specified predicate.
+ * const numbers = HashSet.make(1, 2, 3, 4, 5, 6)
+ * const evens = HashSet.filter(numbers, (n) => n % 2 === 0)
  *
- * @since 2.0.0
+ * console.log(Array.from(evens).sort()) // [2, 4, 6]
+ * console.log(HashSet.size(evens)) // 3
+ * ```
+ *
  * @category filtering
+ * @since 2.0.0
  */
 export const filter: {
-  <A, B extends A>(refinement: Refinement<NoInfer<A>, B>): (self: HashSet<A>) => HashSet<B>
-  <A>(predicate: Predicate<NoInfer<A>>): (self: HashSet<A>) => HashSet<A>
-  <A, B extends A>(self: HashSet<A>, refinement: Refinement<A, B>): HashSet<B>
-  <A>(self: HashSet<A>, predicate: Predicate<A>): HashSet<A>
-} = HS.filter
+  <V, U extends V>(refinement: Refinement<NoInfer<V>, U>): (self: HashSet<V>) => HashSet<U>
+  <V>(predicate: Predicate<NoInfer<V>>): (self: HashSet<V>) => HashSet<V>
+  <V, U extends V>(self: HashSet<V>, refinement: Refinement<V, U>): HashSet<U>
+  <V>(self: HashSet<V>, predicate: Predicate<V>): HashSet<V>
+} = Dual.dual<
+  {
+    <V, U extends V>(refinement: Refinement<NoInfer<V>, U>): (self: HashSet<V>) => HashSet<U>
+    <V>(predicate: Predicate<NoInfer<V>>): (self: HashSet<V>) => HashSet<V>
+  },
+  {
+    <V, U extends V>(self: HashSet<V>, refinement: Refinement<V, U>): HashSet<U>
+    <V>(self: HashSet<V>, predicate: Predicate<V>): HashSet<V>
+  }
+>(2, internal.filter)
 
 /**
- * Partition the values of a `HashSet` using the specified predicate.
+ * Checks whether at least one value in the HashSet satisfies the predicate.
  *
- * If a value matches the predicate, it will be placed into the `HashSet` on the
- * right side of the resulting `Tuple`, otherwise the value will be placed into
- * the left side.
+ * **Example** (Testing whether some values match)
  *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const numbers = HashSet.make(1, 2, 3, 4, 5)
+ *
+ * console.log(HashSet.some(numbers, (n) => n > 3)) // true
+ * console.log(HashSet.some(numbers, (n) => n > 10)) // false
+ *
+ * const empty = HashSet.empty<number>()
+ * console.log(HashSet.some(empty, (n) => n > 0)) // false
+ * ```
+ *
+ * @category elements
  * @since 2.0.0
- * @category partitioning
  */
-export const partition: {
-  <A, B extends A>(
-    refinement: Refinement<NoInfer<A>, B>
-  ): (self: HashSet<A>) => [excluded: HashSet<Exclude<A, B>>, satisfying: HashSet<B>]
-  <A>(predicate: Predicate<NoInfer<A>>): (self: HashSet<A>) => [excluded: HashSet<A>, satisfying: HashSet<A>]
-  <A, B extends A>(
-    self: HashSet<A>,
-    refinement: Refinement<A, B>
-  ): [excluded: HashSet<Exclude<A, B>>, satisfying: HashSet<B>]
-  <A>(self: HashSet<A>, predicate: Predicate<A>): [excluded: HashSet<A>, satisfying: HashSet<A>]
-} = HS.partition
+export const some: {
+  <V>(predicate: Predicate<V>): (self: HashSet<V>) => boolean
+  <V>(self: HashSet<V>, predicate: Predicate<V>): boolean
+} = Dual.dual<
+  <V>(predicate: Predicate<V>) => (self: HashSet<V>) => boolean,
+  <V>(self: HashSet<V>, predicate: Predicate<V>) => boolean
+>(2, internal.some)
+
+/**
+ * Checks whether all values in the HashSet satisfy the predicate.
+ *
+ * **Example** (Testing whether every value matches)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const numbers = HashSet.make(2, 4, 6, 8)
+ *
+ * console.log(HashSet.every(numbers, (n) => n % 2 === 0)) // true
+ * console.log(HashSet.every(numbers, (n) => n > 5)) // false
+ *
+ * const empty = HashSet.empty<number>()
+ * console.log(HashSet.every(empty, (n) => n > 0)) // true (vacuously true)
+ * ```
+ *
+ * @category elements
+ * @since 2.0.0
+ */
+export const every: {
+  <V>(predicate: Predicate<V>): (self: HashSet<V>) => boolean
+  <V>(self: HashSet<V>, predicate: Predicate<V>): boolean
+} = Dual.dual<
+  <V>(predicate: Predicate<V>) => (self: HashSet<V>) => boolean,
+  <V>(self: HashSet<V>, predicate: Predicate<V>) => boolean
+>(2, internal.every)
+
+/**
+ * Reduces the HashSet to a single value by iterating through the values and applying an accumulator function.
+ *
+ * **Example** (Reducing HashSet values)
+ *
+ * ```ts
+ * import { HashSet } from "effect"
+ *
+ * const numbers = HashSet.make(1, 2, 3, 4, 5)
+ * const sum = HashSet.reduce(numbers, 0, (acc, n) => acc + n)
+ *
+ * console.log(sum) // 15
+ *
+ * const strings = HashSet.make("a", "b", "c")
+ * const concatenated = HashSet.reduce(strings, "", (acc, s) => acc + s)
+ * console.log(concatenated) // Order may vary: "abc", "bac", etc.
+ * ```
+ *
+ * @category folding
+ * @since 2.0.0
+ */
+export const reduce: {
+  <V, U>(zero: U, f: (accumulator: U, value: V) => U): (self: HashSet<V>) => U
+  <V, U>(self: HashSet<V>, zero: U, f: (accumulator: U, value: V) => U): U
+} = Dual.dual<
+  <V, U>(zero: U, f: (accumulator: U, value: V) => U) => (self: HashSet<V>) => U,
+  <V, U>(self: HashSet<V>, zero: U, f: (accumulator: U, value: V) => U) => U
+>(3, internal.reduce)
