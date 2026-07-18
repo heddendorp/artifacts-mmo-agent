@@ -1,15 +1,9 @@
-import { artifactClient } from "artifact-api";
 import { Effect, Schedule } from "effect";
-import { cooldown } from "./steps/cooldown.ts";
-import { crafting } from "./steps/crafting.ts";
-import { equip } from "./steps/equip.ts";
 import { fight } from "./steps/fight.ts";
-import { gather } from "./steps/gather.ts";
 import { move } from "./steps/move.ts";
 import { rest } from "./steps/rest.ts";
-import { unequip } from "./steps/unequip.ts";
 
-export const program = Effect.gen(function* () {
+export const program = Effect.fn("program")(function* () {
 	yield* Effect.log("Starting program");
 
 	yield* Effect.repeat(
@@ -19,14 +13,14 @@ export const program = Effect.gen(function* () {
 				y: 1,
 			}).pipe(
 				Effect.catchTags({
-					AlreadyAtDestinationError: () => Effect.succeed(undefined),
+					AlreadyAtDestinationError: () => Effect.void,
 				}),
 			);
 
 			yield* fight();
 
 			yield* rest();
-		}),
+		}).pipe(Effect.withSpan("program.iteration")),
 		Schedule.recurs(199),
 	);
 	//

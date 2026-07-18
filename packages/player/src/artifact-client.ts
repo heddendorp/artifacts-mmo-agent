@@ -1,6 +1,7 @@
-import {Context} from "effect";
-import type {artifactClient} from "artifact-api";
+import type { artifactClient } from "artifact-api";
+import { Context } from "effect";
 
-export class ArtifactClient extends Context.Tag('ArtifactClient')<
-    ArtifactClient, typeof artifactClient>() {
-}
+export class ArtifactClient extends Context.Service<
+	ArtifactClient,
+	typeof artifactClient
+>()("ArtifactClient") {}

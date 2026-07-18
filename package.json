@@ -1,12 +1,14 @@
 {
-  "name": "artifact",
-  "type": "module",
-  "workspaces": ["packages/*"],
-  "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5.0.0"
-  }
+	"name": "artifact",
+	"type": "module",
+	"workspaces": ["packages/*"],
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@effect/language-service": "0.87.0",
+		"@types/bun": "latest",
+		"typescript": "5.9.3"
+	},
+	"peerDependencies": {
+		"typescript": "^5.0.0"
+	}
 }

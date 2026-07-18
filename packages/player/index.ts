@@ -1,11 +1,13 @@
-import {BunContext, BunRuntime} from "@effect/platform-bun";
-import {program} from "./src/program.ts";
-import {Effect} from "effect";
-import {Config} from "./src/config-service.ts";
-import {ArtifactClient} from "./src/artifact-client.ts";
-import {artifactClient} from "artifact-api";
+import { BunRuntime } from "@effect/platform-bun";
+import { artifactClient } from "artifact-api";
+import { Effect } from "effect";
+import { ArtifactClient } from "./src/artifact-client.ts";
+import { Config } from "./src/config-service.ts";
+import { program } from "./src/program.ts";
 
-const name = 'Lukas'
-
-
-BunRuntime.runMain(program.pipe(Effect.provide(BunContext.layer), Effect.provideService(Config, {name: 'Lukas'}), Effect.provideService(ArtifactClient, artifactClient)))
+BunRuntime.runMain(
+	program().pipe(
+		Effect.provideService(Config, { name: "Lukas" }),
+		Effect.provideService(ArtifactClient, artifactClient),
+	),
+);

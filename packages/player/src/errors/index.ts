@@ -1,7 +1,11 @@
-export class AlreadyAtDestinationError{
-    readonly _tag = 'AlreadyAtDestinationError'
-}
+import { Schema } from "effect";
 
-export class ArtifactError extends Error {
-    readonly _tag = 'ArtifactError'
-}
+export class AlreadyAtDestinationError extends Schema.TaggedErrorClass<AlreadyAtDestinationError>()(
+	"AlreadyAtDestinationError",
+	{},
+) {}
+
+export class ArtifactError extends Schema.TaggedErrorClass<ArtifactError>()(
+	"ArtifactError",
+	{ message: Schema.String },
+) {}

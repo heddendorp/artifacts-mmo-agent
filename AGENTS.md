@@ -37,6 +37,31 @@ This is a Bun/TypeScript workspace with three packages:
 Both runtime packages depend on the shared API package. Keep endpoint types and
 authentication centralized there.
 
+## Vendored Effect reference
+
+The Effect monorepo is vendored as a squashed Git subtree under `repos/effect`
+at `effect@4.0.0-beta.99`, matching the player package's Effect 4 dependencies.
+
+When writing or reviewing Effect code:
+
+1. Read `repos/effect/LLMS.md` completely before making changes.
+2. Use `repos/effect/packages`, its tests, and its AI documentation as the
+   source of truth for Effect 4 APIs and idioms.
+3. For v3-to-v4 questions, start with `repos/effect/MIGRATION.md` and the linked
+   guides under `repos/effect/migration`.
+4. Treat `repos/effect` as read-only reference material. Do not edit it unless
+   explicitly asked and do not import application code from it; continue using
+   normal package dependencies.
+
+When changing Effect versions, update all Effect packages to the same v4
+version and update the subtree to the matching tag:
+
+```sh
+git subtree pull --prefix=repos/effect \
+  https://github.com/Effect-TS/effect.git \
+  'effect@<version>' --squash
+```
+
 ## Setup and useful commands
 
 Use Bun. Dependencies are workspace-managed from the repository root.
@@ -108,8 +133,8 @@ When touching API integrations:
 - Use generated `components` and `paths` types instead of duplicating API
   payload shapes.
 - Keep game actions small and composable.
-- In Effect code, obtain configuration and the API client through their Context
-  tags and model expected failures as typed errors where reasonable.
+- In Effect code, obtain configuration and the API client through
+  `Context.Service` and model expected failures as schema-backed tagged errors.
 - In agent tools, keep tool schemas aligned with the actual parameters sent to
   the API; do not advertise filters that the implementation ignores.
 - Preserve the prototype's two approaches unless a task explicitly chooses one
