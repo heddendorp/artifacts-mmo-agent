@@ -15,6 +15,7 @@ import { tools } from "./tools.ts";
 
 const rules = ` 
 You have the following characters you can use:
+ - Sonja
  - Lukas
  - LukasAI
 Characters can work in parallel, make sure to keep both busy, during cooldown you can switch the active character. 
@@ -143,7 +144,9 @@ const agent = createReactAgent({
 const inputs = {
 	messages: [
 		new SystemMessage(rules),
-		new HumanMessage("Finish the current task, then end"),
+		new HumanMessage(
+			"Have all three characters reach a new level and improve gear, then end",
+		),
 	],
 };
 
